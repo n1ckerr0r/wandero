@@ -1,43 +1,26 @@
-export type EventItem = {
-  id: number;
-  title: string;
-  description: string;
-  date_from: string;
-  date_to?: string;
-  location_id?: number;
-  location_name?: string;
-  latitude?: number;
-  longitude?: number;
-  tags: string[];
-};
+import type { components } from "./api-schema";
 
-export type LocationItem = {
-  id: number;
-  name: string;
-  description: string;
-  latitude: number;
-  longitude: number;
+export type EventItem = components["schemas"]["Event"];
+export type EventInput = components["schemas"]["EventInput"];
+export type LocationItem = components["schemas"]["Location"];
+export type LocationInput = components["schemas"]["LocationInput"];
+export type TagItem = components["schemas"]["Tag"];
+export type TagInput = components["schemas"]["TagInput"];
+export type SourceItem = components["schemas"]["Source"];
+export type SourceInput = components["schemas"]["SourceInput"];
+export type MediaItem = components["schemas"]["Media"];
+export type MediaInput = Omit<components["schemas"]["MediaInput"], "type"> & {
+  type?: "image" | "link";
 };
-
-export type TagItem = {
-  id: number;
-  name: string;
-};
-
-export type MediaItem = {
-  id: number;
-  event_id: number;
-  url: string;
-  caption: string;
-  type: string;
-};
+export type RouteItem = components["schemas"]["Route"];
+export type RouteInput = components["schemas"]["RouteInput"];
 
 export type GeoJSONFeatureCollection = GeoJSON.FeatureCollection<
   GeoJSON.Point,
   Record<string, unknown>
 >;
 
-export type Tab = "events" | "locations";
+export type Tab = "locations" | "routes";
 
 export type Filters = {
   q: string;

@@ -1,4 +1,5 @@
-import maplibregl, { GeoJSONSource, Map, Marker, Popup } from "maplibre-gl";
+import * as maplibregl from "maplibre-gl";
+import type { GeoJSONSource, Map, Marker, Popup } from "maplibre-gl";
 import { useEffect, useRef } from "react";
 import { SelectionCard } from "./SelectionCard";
 import type {
@@ -87,7 +88,7 @@ export function MapView({
       // Основной GeoJSON-source переиспользуется: дальше мы только обновляем его данные.
       map.addSource("events", {
         type: "geojson",
-        data: geoJSON,
+        data: { type: "FeatureCollection", features: [] },
       });
 
       // Отдельный слой подсветки позволяет выделить выбранное событие без пересоздания основного слоя.
@@ -148,14 +149,14 @@ export function MapView({
     }
 
     const updateSource = () => {
-      const source = map.getSource("events") as GeoJSONSource | undefined;
-      source?.setData(geoJSON);
+      const source = map.getSource<GeoJSONSource>("events");
+      void source?.setData(geoJSON);
     };
 
     if (map.loaded()) {
       updateSource();
     } else {
-      map.once("load", updateSource);
+      void map.once("load", updateSource);
     }
   }, [geoJSON]);
 
@@ -207,7 +208,7 @@ export function MapView({
     if (map.loaded()) {
       updateSelectedLayer();
     } else {
-      map.once("load", updateSelectedLayer);
+      void map.once("load", updateSelectedLayer);
     }
   }, [selectedEvent?.id]);
 
@@ -218,7 +219,7 @@ export function MapView({
     }
 
     const points = events.filter(
-      (event) => event.longitude !== undefined && event.latitude !== undefined,
+      (event) => event.longitude != null && event.latitude != null,
     );
     if (points.length === 0) {
       return;
@@ -238,10 +239,7 @@ export function MapView({
       return;
     }
 
-    if (
-      selectedEvent?.longitude !== undefined &&
-      selectedEvent.latitude !== undefined
-    ) {
+    if (selectedEvent?.longitude != null && selectedEvent.latitude != null) {
       popupRef.current?.remove();
       popupRef.current = new maplibregl.Popup({
         closeButton: false,

@@ -1,65 +1,142 @@
+import { useMemo, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
-import { eventPreviewImage, locationPreviewImage } from "./images";
-import type { EventItem, Filters, LocationItem, Tab, TagItem } from "./types";
+import { completeRoute, createRoute } from "./api";
+import { Icon } from "./Icon";
+import { locationPreviewImage } from "./images";
+import type { Filters, LocationItem, RouteItem, Tab } from "./types";
 
 type SidePanelProps = {
   activeTab: Tab;
   error?: string;
-  events: EventItem[];
   filters: Filters;
   loading: boolean;
+  allLocations: LocationItem[];
   locations: LocationItem[];
-  selectedEventId?: number;
+  routes: RouteItem[];
+  routesError?: string;
   selectedLocationId?: number;
-  tags: TagItem[];
   onChangeFilters: Dispatch<SetStateAction<Filters>>;
   onRefresh: () => void;
-  onSelectEvent: (id: number) => void;
   onSelectLocation: (id: number) => void;
   onSetActiveTab: (tab: Tab) => void;
+  onRouteSaved: () => void;
 };
+
+function pluralPlaces(count: number) {
+  if (count % 10 === 1 && count % 100 !== 11) return "место";
+  if (count % 10 >= 2 && count % 10 <= 4 && !(count % 100 >= 12 && count % 100 <= 14)) return "места";
+  return "мест";
+}
 
 export function SidePanel({
   activeTab,
   error,
-  events,
   filters,
   loading,
+  allLocations,
   locations,
-  selectedEventId,
+  routes,
+  routesError,
   selectedLocationId,
-  tags,
   onChangeFilters,
   onRefresh,
-  onSelectEvent,
   onSelectLocation,
   onSetActiveTab,
+  onRouteSaved,
 }: SidePanelProps) {
+  const [selectedRouteId, setSelectedRouteId] = useState<number>();
+  const [myWalk, setMyWalk] = useState<number[]>([]);
+  const [saveState, setSaveState] = useState<string>();
+
+  const routeLocations = useMemo(
+    () => allLocations.filter((location) => myWalk.includes(location.id)),
+    [allLocations, myWalk],
+  );
+  const selectedRoute =
+    routes.find((route) => route.id === selectedRouteId) ?? routes[0];
+
+  const toggleWalkPlace = (id: number) => {
+    setSaveState(undefined);
+    setMyWalk((current) =>
+      current.includes(id)
+        ? current.filter((item) => item !== id)
+        : [...current, id],
+    );
+  };
+
+  const moveWalkPlace = (id: number, direction: -1 | 1) => {
+    setSaveState(undefined);
+    setMyWalk((current) => {
+      const index = current.indexOf(id);
+      const target = index + direction;
+      if (index < 0 || target < 0 || target >= current.length) return current;
+      const reordered = [...current];
+      [reordered[index], reordered[target]] = [
+        reordered[target],
+        reordered[index],
+      ];
+      return reordered;
+    });
+  };
+
+  const saveWalk = async () => {
+    if (routeLocations.length === 0) {
+      setSaveState("Добавьте хотя бы одно место.");
+      return;
+    }
+    setSaveState("Сохраняем…");
+    try {
+      await createRoute({
+        title: "Моя прогулка",
+        description: "Маршрут, собранный в Wandero.",
+        published: false,
+        stops: routeLocations.map((location) => ({
+          location_id: location.id,
+          visit_minutes: 30,
+        })),
+      });
+      setSaveState("Прогулка сохранена.");
+      onRouteSaved();
+    } catch (caught) {
+      setSaveState(
+        `Не удалось сохранить: ${caught instanceof Error ? caught.message : "неизвестная ошибка"}`,
+      );
+    }
+  };
+
   return (
     <aside className="side-panel">
       <header className="panel-header">
-        <div>
-          <p className="eyebrow">Chronograph SPB</p>
-          <h1>Историческая карта Петербурга</h1>
+        <div className="brand-lockup">
+          <span className="brand-mark" aria-hidden="true">
+            w
+          </span>
+          <div>
+            <p className="eyebrow">Wandero · Петербург</p>
+            <h1>Карта города</h1>
+          </div>
         </div>
         <button
-          className="icon-button"
+          className="icon-button refresh-button"
           type="button"
-          title="Обновить данные"
-          aria-label="Обновить данные"
+          title="Обновить места"
+          aria-label="Обновить места"
           onClick={onRefresh}
         >
-          ↻
+          <Icon name="refresh" />
         </button>
       </header>
 
-      <form className="filters">
-        <label>
-          <span>Поиск</span>
+      <form className="filters" onSubmit={(event) => event.preventDefault()}>
+        <label className="search-field">
+          <span className="search-glyph" aria-hidden="true">
+            <Icon name="search" />
+          </span>
           <input
+            aria-label="Поиск мест и адресов"
             name="q"
             type="search"
-            placeholder="Событие, место, описание"
+            placeholder="Место или адрес"
             autoComplete="off"
             value={filters.q}
             onChange={(event) =>
@@ -69,249 +146,314 @@ export function SidePanel({
               }))
             }
           />
-        </label>
-        <div className="filter-grid">
-          <label>
-            <span>С</span>
-            <input
-              name="from"
-              type="text"
-              inputMode="numeric"
-              placeholder="1700"
-              value={filters.from}
-              onChange={(event) =>
-                onChangeFilters((current) => ({
-                  ...current,
-                  from: event.target.value,
-                }))
-              }
-            />
-          </label>
-          <label>
-            <span>По</span>
-            <input
-              name="to"
-              type="text"
-              inputMode="numeric"
-              placeholder="1917"
-              value={filters.to}
-              onChange={(event) =>
-                onChangeFilters((current) => ({
-                  ...current,
-                  to: event.target.value,
-                }))
-              }
-            />
-          </label>
-        </div>
-        <label>
-          <span>Тег</span>
-          <select
-            name="tag"
-            value={filters.tag}
-            onChange={(event) =>
-              onChangeFilters((current) => ({
-                ...current,
-                tag: event.target.value,
-              }))
-            }
-          >
-            <option value="">Все теги</option>
-            {tags.map((tag) => (
-              <option key={tag.id} value={tag.name}>
-                {tag.name}
-              </option>
-            ))}
-          </select>
+          <kbd>⌘ K</kbd>
         </label>
       </form>
 
-      <nav className="tabs" aria-label="Разделы">
-        <button
-          className={activeTab === "events" ? "tab active" : "tab"}
-          type="button"
-          onClick={() => onSetActiveTab("events")}
-        >
-          События
-        </button>
+      <nav className="tabs" aria-label="Разделы карты">
         <button
           className={activeTab === "locations" ? "tab active" : "tab"}
           type="button"
           onClick={() => onSetActiveTab("locations")}
         >
-          Объекты
+          <Icon name="map" /> Места
+        </button>
+        <button
+          className={activeTab === "routes" ? "tab active" : "tab"}
+          type="button"
+          onClick={() => onSetActiveTab("routes")}
+        >
+          <Icon name="route" /> Маршруты
         </button>
       </nav>
 
-      <div className="map-status">
-        {error
-          ? `Ошибка: ${error}`
-          : loading
-            ? "Обновление данных"
-            : `${events.length} событий на карте`}
-      </div>
+      <div className="panel-content">
+        {activeTab === "locations" ? (
+          <>
+            <div className="section-heading">
+              <div>
+                <p className="eyebrow">Исследуйте рядом</p>
+                <h2>Места в Петербурге</h2>
+              </div>
+              <span className="count-pill">{locations.length}</span>
+            </div>
+            <p className="section-note">
+              {error
+                ? `Не удалось загрузить места: ${error}`
+                : loading
+                  ? "Обновляем карту…"
+                  : "Выберите точку на карте или откройте место из списка."}
+            </p>
+            <LocationList
+              locations={locations}
+              selectedLocationId={selectedLocationId}
+              onSelectLocation={onSelectLocation}
+              onAddToWalk={toggleWalkPlace}
+              addedIds={myWalk}
+            />
+          </>
+        ) : (
+          <>
+            <div className="section-heading">
+              <div>
+                <p className="eyebrow">Проверено местными</p>
+                <h2>Популярные прогулки</h2>
+              </div>
+              <span className="count-pill">{routes.length}</span>
+            </div>
 
-      <section
-        className={activeTab === "events" ? "list active" : "list"}
-        aria-live="polite"
-      >
-        <EventsList
-          events={events}
-          selectedEventId={selectedEventId}
-          onSelectEvent={onSelectEvent}
-        />
-      </section>
-      <section
-        className={activeTab === "locations" ? "list active" : "list"}
-        aria-live="polite"
-      >
-        <LocationsList
-          events={events}
-          locations={locations}
-          selectedLocationId={selectedLocationId}
-          onSelectLocation={onSelectLocation}
-        />
-      </section>
+            <div className="route-list">
+              {routes.map((route, index) => (
+                <button
+                  className={
+                    selectedRoute?.id === route.id
+                      ? "route-card selected"
+                      : "route-card"
+                  }
+                  key={route.id}
+                  type="button"
+                  onClick={() => setSelectedRouteId(route.id)}
+                >
+                  <span
+                    className={`route-art route-art-${index + 1}`}
+                    aria-hidden="true"
+                  >
+                    <span className="route-art-line" />
+                    <span className="route-art-pin route-art-pin-first" />
+                    <span className="route-art-pin route-art-pin-last" />
+                  </span>
+                  <span className="route-copy">
+                    <span className="route-category">Редакционный маршрут</span>
+                    <strong>{route.title}</strong>
+                    <span className="route-meta">
+                      {route.walking_minutes != null
+                        ? `${route.walking_minutes} мин пешком`
+                        : "Время не указано"}
+                      {route.distance_meters != null ? <i /> : null}
+                      {route.distance_meters != null
+                        ? `${(route.distance_meters / 1000).toLocaleString("ru-RU", { maximumFractionDigits: 1 })} км`
+                        : null}
+                      <i />
+                      {route.stops.length} {pluralPlaces(route.stops.length)}
+                    </span>
+                    <span className="walked-count">
+                      <Icon name="walk" />
+                      {route.completion_count} прошли
+                    </span>
+                  </span>
+                  <span className="route-arrow" aria-hidden="true">
+                    <Icon name="route" />
+                  </span>
+                </button>
+              ))}
+            </div>
+            {routesError ? (
+              <p className="section-note">
+                Не удалось загрузить маршруты: {routesError}
+              </p>
+            ) : null}
+            {!routesError && routes.length === 0 ? (
+              <p className="empty">Готовых маршрутов пока нет.</p>
+            ) : null}
+
+            {selectedRoute ? (
+              <section className="route-detail" aria-live="polite">
+                <div className="detail-heading">
+                  <div>
+                    <p className="eyebrow">Маршрут дня</p>
+                    <h3>{selectedRoute.title}</h3>
+                  </div>
+                  <span className="route-detail-icon" aria-hidden="true">
+                    <Icon name="route" />
+                  </span>
+                </div>
+                <p>{selectedRoute.description}</p>
+                <ol className="itinerary">
+                  {selectedRoute.stops.map((stop) => (
+                    <li key={stop.position}>{stop.location.name}</li>
+                  ))}
+                </ol>
+                <button
+                  className="add-place"
+                  type="button"
+                  onClick={() => {
+                    void (async () => {
+                      try {
+                        await completeRoute(selectedRoute.id);
+                        onRouteSaved();
+                      } catch (caught) {
+                        setSaveState(
+                          `Не удалось отметить прогулку: ${caught instanceof Error ? caught.message : "неизвестная ошибка"}`,
+                        );
+                      }
+                    })();
+                  }}
+                >
+                  Я прошёл маршрут
+                </button>
+              </section>
+            ) : null}
+
+            <section className="my-walk">
+              <div className="detail-heading">
+                <div>
+                  <p className="eyebrow">Соберите свою прогулку</p>
+                  <h3>
+                    Мой маршрут <span>{routeLocations.length}</span>
+                  </h3>
+                </div>
+                <span
+                  className="route-detail-icon custom-icon"
+                  aria-hidden="true"
+                >
+                  <Icon name="add" />
+                </span>
+              </div>
+              {routeLocations.length > 0 ? (
+                <ol className="itinerary personal-itinerary">
+                  {routeLocations.map((location, index) => (
+                    <li key={location.id}>
+                      <span>{index + 1}</span>
+                      <button
+                        type="button"
+                        onClick={() => toggleWalkPlace(location.id)}
+                        aria-label={`Убрать ${location.name}`}
+                      >
+                        {location.name}
+                        <Icon name="close" />
+                      </button>
+                      <button
+                        type="button"
+                        disabled={index === 0}
+                        onClick={() => moveWalkPlace(location.id, -1)}
+                        aria-label={`Поднять ${location.name}`}
+                      >
+                        <Icon name="arrowUp" />
+                      </button>
+                      <button
+                        type="button"
+                        disabled={index === routeLocations.length - 1}
+                        onClick={() => moveWalkPlace(location.id, 1)}
+                        aria-label={`Опустить ${location.name}`}
+                      >
+                        <Icon name="arrowDown" />
+                      </button>
+                    </li>
+                  ))}
+                </ol>
+              ) : (
+                <p>Добавляйте интересные места из списка ниже.</p>
+              )}
+              <div className="route-place-picker">
+                {locations.slice(0, 6).map((location) => (
+                  <button
+                    className={
+                      myWalk.includes(location.id)
+                        ? "place-option added"
+                        : "place-option"
+                    }
+                    key={location.id}
+                    type="button"
+                    onClick={() => toggleWalkPlace(location.id)}
+                  >
+                    <span>{location.name}</span>
+                    <b>{myWalk.includes(location.id) ? "✓" : "+"}</b>
+                  </button>
+                ))}
+                {locations.length === 0 ? (
+                  <span className="empty">Места пока не загрузились</span>
+                ) : null}
+              </div>
+              <button
+                className="add-place"
+                type="button"
+                onClick={() => void saveWalk()}
+                disabled={routeLocations.length === 0}
+              >
+                Сохранить прогулку
+              </button>
+              {saveState ? (
+                <p className="section-note" aria-live="polite">
+                  {saveState}
+                </p>
+              ) : null}
+            </section>
+          </>
+        )}
+      </div>
     </aside>
   );
 }
 
-function EventsList({
-  events,
-  selectedEventId,
-  onSelectEvent,
-}: {
-  events: EventItem[];
-  selectedEventId?: number;
-  onSelectEvent: (id: number) => void;
-}) {
-  if (events.length === 0) {
-    return <div className="empty">События не найдены</div>;
-  }
-
-  return (
-    <>
-      {events.map((event) => {
-        const imageUrl = eventPreviewImage(event);
-        return (
-          <article
-            key={event.id}
-            className={
-              event.id === selectedEventId ? "item-card active" : "item-card"
-            }
-            tabIndex={0}
-            onClick={() => onSelectEvent(event.id)}
-            onKeyDown={(keyboardEvent) => {
-              if (keyboardEvent.key === "Enter") {
-                onSelectEvent(event.id);
-              }
-            }}
-          >
-            {imageUrl ? (
-              <EntityImage
-                className="card-image"
-                src={imageUrl}
-                alt={event.title}
-              />
-            ) : null}
-            <div className="card-topline">
-              <span className="date">{formatDateRange(event)}</span>
-              <span className="place">
-                {event.location_name || "Без объекта"}
-              </span>
-            </div>
-            <h2>{event.title}</h2>
-            <p>{event.description}</p>
-            <div className="chips">
-              {event.tags.map((tag) => (
-                <span key={tag}>{tag}</span>
-              ))}
-            </div>
-          </article>
-        );
-      })}
-    </>
-  );
-}
-
-function LocationsList({
-  events,
+function LocationList({
+  addedIds,
   locations,
-  selectedLocationId,
+  onAddToWalk,
   onSelectLocation,
+  selectedLocationId,
 }: {
-  events: EventItem[];
+  addedIds: number[];
   locations: LocationItem[];
-  selectedLocationId?: number;
+  onAddToWalk: (id: number) => void;
   onSelectLocation: (id: number) => void;
+  selectedLocationId?: number;
 }) {
   if (locations.length === 0) {
-    return <div className="empty">Объекты не найдены</div>;
+    return (
+      <div className="empty">Места не найдены. Попробуйте другой запрос.</div>
+    );
   }
 
   return (
-    <>
+    <div className="location-list">
       {locations.map((location) => {
-        // Количество считается по текущему отфильтрованному набору событий, а не по всей базе.
-        const count = events.filter(
-          (event) => event.location_id === location.id,
-        ).length;
         const imageUrl = locationPreviewImage(location);
+        const added = addedIds.includes(location.id);
         return (
           <article
             key={location.id}
             className={
               location.id === selectedLocationId
-                ? "item-card active"
-                : "item-card"
+                ? "location-card active"
+                : "location-card"
             }
-            tabIndex={0}
-            onClick={() => onSelectLocation(location.id)}
-            onKeyDown={(keyboardEvent) => {
-              if (keyboardEvent.key === "Enter") {
-                onSelectLocation(location.id);
-              }
-            }}
           >
-            {imageUrl ? (
-              <EntityImage
-                className="card-image"
-                src={imageUrl}
-                alt={location.name}
-              />
-            ) : null}
-            <div className="card-topline">
-              <span className="date">{count} событий</span>
-              <span className="place">
-                {location.latitude.toFixed(4)}, {location.longitude.toFixed(4)}
+            <button
+              className="location-main"
+              type="button"
+              onClick={() => onSelectLocation(location.id)}
+            >
+              {imageUrl ? (
+                <img src={imageUrl} alt="" loading="lazy" />
+              ) : (
+                <span className="location-image-placeholder" aria-hidden="true">
+                  <Icon name="map" />
+                </span>
+              )}
+              <span className="location-copy">
+                <strong>{location.name}</strong>
+                <span>
+                  {location.description ||
+                    "Историческое место в центре Петербурга."}
+                </span>
               </span>
-            </div>
-            <h2>{location.name}</h2>
-            <p>{location.description}</p>
+            </button>
+            <button
+              className={added ? "add-place added" : "add-place"}
+              type="button"
+              onClick={() => onAddToWalk(location.id)}
+              aria-label={
+                added
+                  ? `Убрать ${location.name} из маршрута`
+                  : `Добавить ${location.name} в маршрут`
+              }
+              title={added ? "Убрать из маршрута" : "Добавить в мою прогулку"}
+            >
+              <Icon name={added ? "check" : "add"} />
+            </button>
           </article>
         );
       })}
-    </>
+    </div>
   );
-}
-
-function EntityImage({
-  alt,
-  className,
-  src,
-}: {
-  alt: string;
-  className: string;
-  src: string;
-}) {
-  return <img className={className} src={src} alt={alt} loading="lazy" />;
-}
-
-function formatDateRange(event: EventItem): string {
-  const from = event.date_from.slice(0, 4);
-  const to = event.date_to?.slice(0, 4);
-  if (to && to !== from) {
-    return `${from}-${to}`;
-  }
-  return from;
 }
