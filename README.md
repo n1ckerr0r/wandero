@@ -1,323 +1,145 @@
-# chronograph-spb
+# Wandero
 
-`chronograph-spb` - интерактивная карта истории Санкт-Петербурга. Приложение показывает городские объекты, связанные с ними исторические события, изображения, теги и источники данных.
+Wandero — приложение для городских прогулок по Санкт-Петербургу. React/Vite-клиент показывает места и подборки маршрутов на MapLibre-карте; нативный Android-клиент ведёт по прогулочным сценариям. Go API отдаёт JSON/GeoJSON, данные хранятся в PostgreSQL/PostGIS.
 
-Проект можно использовать как пользовательское приложение для просмотра истории города и как техническую основу для дальнейшего развития: добавления админки, авторизации, загрузки файлов, расширенной фильтрации и production-деплоя.
+## Быстрый старт
 
-## Для пользователя
-
-После обычного запуска откройте frontend в браузере:
-
-```text
-http://localhost:3000
-```
-
-Если проект запущен с кастомным `FRONTEND_PORT=23000`, адрес будет:
-
-```text
-http://localhost:23000
-```
-
-На экране есть карта Санкт-Петербурга и боковая панель с карточками.
-
-Что можно делать:
-
-- смотреть исторические события на карте;
-- переключаться между списком событий и списком объектов;
-- искать по названию, месту и описанию;
-- фильтровать события по периоду;
-- фильтровать события по тегу;
-- нажимать на событие или объект в списке;
-- нажимать на точку события или маркер объекта на карте;
-- смотреть подробную карточку выбранного события;
-- смотреть изображение, описание, дату, место и теги события;
-- открывать media-ссылки события;
-- видеть выбранный объект или событие на карте: карта центрируется на нем, появляется popup и визуальная подсветка.
-
-## Что сейчас реализовано
-
-В базе есть 100 реальных городских объектов и 100 связанных исторических событий. Среди объектов есть крепости, дворцы, соборы, музеи, театры, вокзалы, мосты, площади, сады, промышленные территории, мемориалы и современные городские доминанты.
-
-Основные сущности:
-
-- `Location` - городской объект или место на карте.
-- `Event` - историческое событие, связанное с объектом.
-- `Tag` - тематическая метка события.
-- `Source` - источник, на который можно опираться при описании события.
-- `Media` - изображение или ссылка, привязанная к событию.
-
-Теги сейчас работают только с событиями. У объектов отдельных тегов нет: объект попадает в тематическую выдачу через события, которые к нему привязаны.
-
-Media сейчас хранит URL, подпись и тип (`image`, `link`). Файлы не загружаются внутрь приложения: изображения и ссылки берутся из внешних источников. Это проще для текущей версии и не требует отдельного файлового хранилища.
-
-## Для разработчиков
-
-Проект состоит из трех основных частей:
-
-- `frontend` - React + TypeScript приложение на Vite.
-- `backend` - Go API-first backend.
-- `postgres` - PostgreSQL с PostGIS.
-
-Карты на frontend рисуются через MapLibre GL. Backend отдает JSON API и GeoJSON endpoint для точек на карте. Данные хранятся в PostgreSQL, координаты объектов хранятся через PostGIS в формате `GEOMETRY(Point, 4326)`.
-
-## Архитектура
-
-Frontend:
-
-```text
-frontend/src/App.tsx        состояние приложения, загрузка данных
-frontend/src/MapView.tsx    карта, маркеры, подсветка выбранных объектов
-frontend/src/SidePanel.tsx  фильтры, списки, detail-карточка
-frontend/src/api.ts         HTTP-клиент к backend API
-frontend/src/types.ts       TypeScript-типы DTO
-frontend/src/images.ts      fallback-изображения для карточек
-```
-
-Backend:
-
-```text
-backend/api/openapi.yaml              главный OpenAPI-контракт
-backend/internal/openapi/             сгенерированный Go-код по OpenAPI
-backend/internal/api/                 HTTP-обработчики и реализация API
-backend/internal/database/            подключение к PostgreSQL
-backend/internal/config/              конфигурация приложения
-backend/migrations/                   схема БД и seed-данные
-```
-
-Docker:
-
-```text
-docker-compose.yml
-backend/Dockerfile
-frontend/Dockerfile
-```
-
-## API-first подход
-
-Backend работает по API-first модели. Главный контракт находится здесь:
-
-```text
-backend/api/openapi.yaml
-```
-
-Из OpenAPI генерируются Go-типы и HTTP-роутинг:
-
-```text
-backend/internal/openapi/openapi.gen.go
-```
-
-Реальная бизнес-логика реализует сгенерированный интерфейс в:
-
-```text
-backend/internal/api/contract.go
-```
-
-После изменения OpenAPI нужно регенерировать backend-код:
+Требования: Docker с Compose v2.20+ и `make`.
 
 ```bash
+make up
+```
+
+После запуска:
+
+- приложение: <http://localhost:3000>;
+- API healthcheck: <http://localhost:8080/health>;
+- Swagger UI: `docker compose --profile docs up -d swagger-ui`, затем <http://localhost:8081>;
+- PostgreSQL доступен только на loopback-порту `55432`.
+
+Первый запуск применяет SQL-миграции отдельным одноразовым контейнером `migrate`. Повторные запуски применяют только новые файлы. Старые базы, созданные прежним `docker-entrypoint-initdb.d`-механизмом, автоматически baseline-ятся без повторного запуска seed-миграций.
+
+Полезные команды:
+
+```bash
+make help
+make check          # формат, линты, тесты, сборка и Compose validation
+make logs
+make down
+make migrate
+```
+
+## Локальная разработка
+
+```bash
+make install
+
+# terminal 1
 cd backend
-PATH=/home/n1ckerr0r/go/bin:$PATH GOCACHE=/tmp/chronograph-go-cache go generate ./internal/openapi
-go test ./...
-```
+GOCACHE=/tmp/chronograph-go-cache go run ./cmd/server
 
-Swagger UI читает тот же `openapi.yaml`, поэтому документация и backend-контракт остаются синхронизированными.
-
-## Запуск
-
-Обычный запуск:
-
-```bash
-docker compose up --build
-```
-
-Адреса по умолчанию:
-
-```text
-Frontend:   http://localhost:3000
-Backend:    http://localhost:8080
-Swagger UI: http://localhost:8081
-PostgreSQL: localhost:55432
-```
-
-Если стандартные frontend/backend/swagger порты заняты, можно поднять проект на других портах:
-
-```bash
-POSTGRES_PORT=55433 \
-BACKEND_PORT=28080 \
-FRONTEND_PORT=23000 \
-SWAGGER_PORT=28081 \
-VITE_API_BASE_URL=http://localhost:28080 \
-docker compose up -d --build
-```
-
-Тогда адреса будут:
-
-```text
-Frontend:   http://localhost:23000
-Backend:    http://localhost:28080
-Swagger UI: http://localhost:28081
-PostgreSQL: localhost:55433
-```
-
-## Проверка API
-
-Healthcheck:
-
-```bash
-curl http://localhost:8080/health
-```
-
-Получить события:
-
-```bash
-curl 'http://localhost:8080/api/events?limit=20'
-```
-
-Получить события за период:
-
-```bash
-curl 'http://localhost:8080/api/events?from=1700&to=2026&limit=100'
-```
-
-Получить объекты:
-
-```bash
-curl 'http://localhost:8080/api/locations'
-```
-
-Получить теги:
-
-```bash
-curl 'http://localhost:8080/api/tags'
-```
-
-Получить GeoJSON для карты:
-
-```bash
-curl 'http://localhost:8080/api/map/events.geojson?from=1700&to=2026&limit=100'
-```
-
-Получить media события:
-
-```bash
-curl 'http://localhost:8080/api/events/1000/media'
-```
-
-Создать объект:
-
-```bash
-curl -X POST http://localhost:8080/api/locations \
-  -H 'Content-Type: application/json' \
-  -d '{"name":"Новый объект","description":"Описание","latitude":59.93,"longitude":30.31}'
-```
-
-Создать событие:
-
-```bash
-curl -X POST http://localhost:8080/api/events \
-  -H 'Content-Type: application/json' \
-  -d '{"title":"Новое событие","description":"Описание","date_from":"1900-01-01","location_id":1,"tags":["пример"]}'
-```
-
-Добавить media к событию:
-
-```bash
-curl -X POST http://localhost:8080/api/events/1/media \
-  -H 'Content-Type: application/json' \
-  -d '{"url":"https://example.test/photo.jpg","caption":"Фото объекта","type":"image"}'
-```
-
-## Swagger
-
-Swagger UI:
-
-```text
-http://localhost:8081
-```
-
-При запуске на текущих кастомных портах:
-
-```text
-http://localhost:28081
-```
-
-Через Swagger можно посмотреть все endpoints, схемы запросов и ответов, а также вручную выполнить запросы к API.
-
-## Данные и миграции
-
-Миграции лежат здесь:
-
-```text
-backend/migrations/
-```
-
-Сейчас они применяются через PostgreSQL init directory:
-
-```text
-/docker-entrypoint-initdb.d
-```
-
-Это значит:
-
-- SQL-файлы выполняются при первом создании Docker volume;
-- если volume уже существует, новые SQL-файлы автоматически не применятся;
-- seed-данные сохраняются, пока сохраняется Docker volume `postgres_data`.
-
-Для полной пересборки dev-базы:
-
-```bash
-docker compose down -v
-docker compose up --build
-```
-
-Для production следующим шагом лучше добавить отдельный мигратор, например `goose`, `tern` или `golang-migrate`, чтобы применять новые миграции без удаления данных.
-
-## Тесты
-
-Backend:
-
-```bash
-cd backend
-GOCACHE=/tmp/chronograph-go-cache go test ./...
-```
-
-Frontend:
-
-```bash
+# terminal 2
 cd frontend
-npm install
-npm run build
+npm run dev
 ```
 
-Integration tests с PostGIS:
+Vite проксирует `/api` и `/health` на `localhost:8080`. Production frontend использует Nginx reverse proxy, поэтому браузеру не нужен отдельный адрес API и CORS.
+
+Основные каталоги:
+
+```text
+backend/api/openapi.yaml       источник истины API
+frontend/src/api-schema.d.ts  сгенерированные TypeScript-типы API
+backend/cmd/server             HTTP-сервер
+backend/cmd/migrate            мигратор
+backend/internal/api           обработчики и middleware
+backend/migrations             схема и seed-данные
+frontend/src                   React-приложение
+android/app                    нативное Android-приложение (Compose)
+docs/openapi.yaml              синхронизированная копия для документации
+.github/workflows/ci.yml       CI
+```
+
+После изменения OpenAPI:
 
 ```bash
-POSTGRES_PORT=55432 docker compose -p chronograph_backend_test up -d postgres
-
-cd backend
-GOCACHE=/tmp/chronograph-go-cache \
-TEST_DATABASE_URL=postgres://chronograph:chronograph@localhost:55432/chronograph \
-go test ./...
-
-cd ..
-POSTGRES_PORT=55432 docker compose -p chronograph_backend_test down -v
+make generate
+make check
 ```
 
-## Как это работает по потоку данных
+`make generate` обновляет Go server bindings, копию спецификации в `docs/` и TypeScript-схему фронтенда. Ручной API-клиент проверяет пути по сгенерированному типу `paths`; CI дополнительно сравнивает результат генерации с закоммиченной схемой.
 
-1. Пользователь открывает frontend.
-2. React-приложение запрашивает у backend события, объекты, теги и GeoJSON.
-3. Backend читает данные из PostgreSQL/PostGIS.
-4. Frontend рисует карту MapLibre и карточки в боковой панели.
-5. При выборе события frontend запрашивает media этого события.
-6. Карта центрируется на выбранной точке и подсвечивает событие или объект.
+Сверка 27 операций с UI и список недостающих route API — в [docs/api-coverage.md](docs/api-coverage.md).
 
-## Текущие ограничения
+## Android
 
-- Нет авторизации и ролей.
-- Нет административного UI для редактирования данных.
-- Нет загрузки файлов на сервер, media хранит внешние URL.
-- У объектов пока нет отдельной таблицы media.
-- Нет отдельного production-мигратора.
-- CORS открыт для всех origin.
-- API возвращает массивы без meta-информации пагинации.
+Мобильная версия Wandero переносит сценарии `M10–M16` из Figma в нативный Jetpack Compose: карта и места, карточка места, сборка прогулки, готовый маршрут, навигация и каталог популярных маршрутов.
+
+```bash
+GRADLE_USER_HOME=/tmp/wandero-gradle gradle -p android assembleDebug
+```
+
+Подробности — в [android/README.md](android/README.md).
+
+## Проверки качества
+
+`make check` выполняет:
+
+- `gofmt` check, `go vet`, `go test -race -cover`;
+- Vitest-тесты API-клиента и пользовательских действий боковой панели;
+- проверку синхронности OpenAPI-контрактов;
+- ESLint с type-aware правилами, Prettier и TypeScript typecheck;
+- production-сборки backend/frontend;
+- валидацию dev и production Compose-конфигураций.
+
+Интеграционные Go-тесты включаются переменной `TEST_DATABASE_URL`:
+
+```bash
+docker compose up -d postgres migrate
+TEST_DATABASE_URL=postgres://chronograph:chronograph@localhost:55432/chronograph \
+  make test-backend
+```
+
+Для API-интеграционных тестов тестовая база должна быть отдельной: тесты сбрасывают схему и применяют миграции заново.
+
+## Production deployment
+
+Проект содержит production overlay для одного сервера. TLS должен завершаться во внешнем reverse proxy/load balancer; наружу публикуется только frontend. Backend и PostgreSQL в базовом Compose привязаны к `127.0.0.1`.
+
+```bash
+cp .env.example .env
+# Замените DB_PASSWORD и API_WRITE_KEY на независимые длинные случайные значения.
+docker compose -f docker-compose.yml -f docker-compose.prod.yml config
+make prod-up
+curl --fail http://localhost:8080/health
+```
+
+В production overlay непустые `DB_PASSWORD` и `API_WRITE_KEY` обязательны. Все `POST`, `PUT` и `DELETE` запросы требуют заголовок:
+
+```text
+Authorization: Bearer <API_WRITE_KEY>
+```
+
+Читайте полный checklist в [docs/deployment.md](docs/deployment.md).
+
+## Конфигурация backend
+
+| Переменная | Default | Назначение |
+| --- | --- | --- |
+| `SERVER_ADDR` | `:8080` | адрес HTTP-сервера |
+| `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME` | dev defaults | PostgreSQL |
+| `DB_SSLMODE` | `disable` | режим TLS pgx |
+| `CORS_ALLOWED_ORIGINS` | пусто | список origins через запятую |
+| `API_WRITE_KEY` | пусто | Bearer key для mutation API; обязателен в prod overlay |
+| `HTTP_READ_TIMEOUT` | `10s` | read/read-header timeout |
+| `HTTP_WRITE_TIMEOUT` | `30s` | write timeout |
+| `HTTP_IDLE_TIMEOUT` | `60s` | keep-alive timeout |
+| `HTTP_SHUTDOWN_TIMEOUT` | `10s` | graceful shutdown timeout |
+
+## Важные ограничения
+
+- Это публичный read API со статическим ключом для записей, не полноценная пользовательская RBAC-система.
+- Административного UI и загрузки файлов нет; media содержит внешние HTTP(S)-URL.
+- Пагинация возвращает массив без total/meta.
+- Карта и seed-изображения используют внешние OpenStreetMap/Wikimedia-ресурсы; для большой нагрузки нужен собственный или коммерческий tile provider с подходящим SLA.
+- Резервное копирование PostgreSQL и TLS выполняются инфраструктурой деплоя, а не приложением.

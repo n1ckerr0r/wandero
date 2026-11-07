@@ -1,0 +1,7 @@
+{
+  "name": "Wandero — Walks Handoff Builder",
+  "id": "wandero-walks-handoff-builder",
+  "api": "1.0.0",
+  "main": "code.js",
+  "editorType": ["figma"]
+}
