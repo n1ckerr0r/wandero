@@ -1,0 +1,3 @@
+[*.kt]
+indent_size = 2
+ktlint_standard_function-naming = disabled
