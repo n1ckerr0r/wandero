@@ -9,7 +9,7 @@ import (
 func (api *API) listTags(w http.ResponseWriter, r *http.Request) {
 	rows, err := api.db.Query(r.Context(), `SELECT id, name FROM tag ORDER BY name`)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		handleDBError(w, err)
 		return
 	}
 	defer rows.Close()
@@ -18,10 +18,14 @@ func (api *API) listTags(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var item tagDTO
 		if err := rows.Scan(&item.ID, &item.Name); err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
+			handleDBError(w, err)
 			return
 		}
 		tags = append(tags, item)
+	}
+	if err := rows.Err(); err != nil {
+		handleDBError(w, err)
+		return
 	}
 
 	writeJSON(w, http.StatusOK, tags)
@@ -47,7 +51,7 @@ func (api *API) createTag(w http.ResponseWriter, r *http.Request) {
 		RETURNING id, name`, name,
 	).Scan(&item.ID, &item.Name)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		handleDBError(w, err)
 		return
 	}
 
@@ -89,7 +93,7 @@ func (api *API) deleteTag(w http.ResponseWriter, r *http.Request) {
 
 	tag, err := api.db.Exec(r.Context(), `DELETE FROM tag WHERE id=$1`, id)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		handleDBError(w, err)
 		return
 	}
 	if tag.RowsAffected() == 0 {

@@ -2,15 +2,19 @@ package api
 
 import (
 	"context"
+	"crypto/subtle"
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"io"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 func replaceEventTags(ctx context.Context, tx pgx.Tx, eventID int64, tags []string) error {
@@ -83,18 +87,30 @@ func parseFlexibleDate(value string, endOfYear bool) (time.Time, error) {
 	return parsed, nil
 }
 
-func parsePositiveInt(value string, fallback int) int {
+func parsePositiveInt(value string, fallback int) (int, error) {
 	if value == "" {
-		return fallback
+		return fallback, nil
 	}
 	parsed, err := strconv.Atoi(value)
 	if err != nil || parsed < 0 {
-		return fallback
+		return 0, badRequestError("pagination values must be non-negative integers")
 	}
 	if parsed > 500 {
-		return 500
+		return 0, badRequestError("pagination limit must not exceed 500")
 	}
-	return parsed
+	return parsed, nil
+}
+
+// parseOffset limits deep pagination independently from the smaller page-size limit.
+func parseOffset(value string, fallback int) (int, error) {
+	if value == "" {
+		return fallback, nil
+	}
+	parsed, err := strconv.Atoi(value)
+	if err != nil || parsed < 0 || parsed > 100_000 {
+		return 0, badRequestError("pagination offset must be between 0 and 100000")
+	}
+	return parsed, nil
 }
 
 func pathID(w http.ResponseWriter, r *http.Request, name string) (int64, bool) {
@@ -108,10 +124,15 @@ func pathID(w http.ResponseWriter, r *http.Request, name string) (int64, bool) {
 }
 
 func readJSONBody(w http.ResponseWriter, r *http.Request, dst any) bool {
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(dst); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON body: "+err.Error())
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		return false
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		writeError(w, http.StatusBadRequest, "request body must contain exactly one JSON object")
 		return false
 	}
 	return true
@@ -122,7 +143,22 @@ func handleDBError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusNotFound, "resource not found")
 		return
 	}
-	writeError(w, http.StatusInternalServerError, err.Error())
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		switch pgErr.Code {
+		case "23503":
+			writeError(w, http.StatusBadRequest, "referenced resource does not exist")
+			return
+		case "23505":
+			writeError(w, http.StatusConflict, "resource already exists")
+			return
+		case "23514", "22P02":
+			writeError(w, http.StatusBadRequest, "request violates a data constraint")
+			return
+		}
+	}
+	log.Printf("database error: %v", err)
+	writeError(w, http.StatusInternalServerError, "internal server error")
 }
 
 type badRequestError string
@@ -150,13 +186,64 @@ func writeError(w http.ResponseWriter, status int, message string) {
 	writeJSON(w, status, map[string]string{"error": message})
 }
 
-func cors(next http.Handler) http.Handler {
+func cors(next http.Handler, allowedOrigins []string) http.Handler {
+	allowed := make(map[string]struct{}, len(allowedOrigins))
+	for _, origin := range allowedOrigins {
+		allowed[origin] = struct{}{}
+	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		origin := r.Header.Get("Origin")
+		_, isAllowed := allowed[origin]
+		if origin != "" && isAllowed {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Vary", "Origin")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		}
 		if r.Method == http.MethodOptions {
+			if origin != "" && !isAllowed {
+				writeError(w, http.StatusForbidden, "origin is not allowed")
+				return
+			}
 			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func securityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("Referrer-Policy", "no-referrer")
+		next.ServeHTTP(w, r)
+	})
+}
+
+func recoverPanic(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer func() {
+			if recovered := recover(); recovered != nil {
+				log.Printf("panic serving %s %s: %v", r.Method, r.URL.Path, recovered)
+				writeError(w, http.StatusInternalServerError, "internal server error")
+			}
+		}()
+		next.ServeHTTP(w, r)
+	})
+}
+
+func requireWriteKey(next http.Handler, key string) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if key == "" || (r.Method != http.MethodPost && r.Method != http.MethodPut && r.Method != http.MethodDelete) {
+			next.ServeHTTP(w, r)
+			return
+		}
+		const prefix = "Bearer "
+		authorization := r.Header.Get("Authorization")
+		if !strings.HasPrefix(authorization, prefix) || subtle.ConstantTimeCompare([]byte(strings.TrimPrefix(authorization, prefix)), []byte(key)) != 1 {
+			w.Header().Set("WWW-Authenticate", "Bearer")
+			writeError(w, http.StatusUnauthorized, "authentication required")
 			return
 		}
 		next.ServeHTTP(w, r)

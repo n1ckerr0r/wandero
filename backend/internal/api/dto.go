@@ -82,3 +82,37 @@ type mediaInput struct {
 	Caption string `json:"caption"`
 	Type    string `json:"type"`
 }
+
+type routeStopInput struct {
+	LocationID   int64 `json:"location_id"`
+	VisitMinutes int   `json:"visit_minutes"`
+}
+
+type routeInput struct {
+	Title          string           `json:"title"`
+	Description    string           `json:"description"`
+	Published      bool             `json:"published"`
+	DistanceMeters *int             `json:"distance_meters"`
+	WalkingMinutes *int             `json:"walking_minutes"`
+	Stops          []routeStopInput `json:"stops"`
+}
+
+type routeStopDTO struct {
+	Position     int         `json:"position"`
+	LocationID   int64       `json:"location_id"`
+	VisitMinutes int         `json:"visit_minutes"`
+	Location     locationDTO `json:"location"`
+}
+
+type routeDTO struct {
+	ID              int64          `json:"id"`
+	Title           string         `json:"title"`
+	Description     string         `json:"description"`
+	Published       bool           `json:"published"`
+	DistanceMeters  *int           `json:"distance_meters"`
+	WalkingMinutes  *int           `json:"walking_minutes"`
+	CompletionCount int            `json:"completion_count"`
+	Stops           []routeStopDTO `json:"stops"`
+	CreatedAt       time.Time      `json:"created_at"`
+	UpdatedAt       time.Time      `json:"updated_at"`
+}

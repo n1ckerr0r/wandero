@@ -57,20 +57,37 @@ func TestParseFlexibleDateRejectsInvalidValue(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected invalid date filter error")
 	}
+	if _, err := parseFlexibleDate("1703-02-30", false); err == nil {
+		t.Fatal("expected invalid calendar date to be rejected")
+	}
 }
 
 func TestParsePositiveInt(t *testing.T) {
-	if got := parsePositiveInt("", 25); got != 25 {
+	if got, err := parsePositiveInt("", 25); got != 25 || err != nil {
 		t.Fatalf("empty value returned %d", got)
 	}
-	if got := parsePositiveInt("-1", 25); got != 25 {
-		t.Fatalf("negative value returned %d", got)
+	if _, err := parsePositiveInt("-1", 25); err == nil {
+		t.Fatal("negative value should fail")
 	}
-	if got := parsePositiveInt("501", 25); got != 500 {
-		t.Fatalf("large value returned %d", got)
+	if _, err := parsePositiveInt("501", 25); err == nil {
+		t.Fatal("large value should fail")
 	}
-	if got := parsePositiveInt("10", 25); got != 10 {
+	if got, err := parsePositiveInt("10", 25); got != 10 || err != nil {
 		t.Fatalf("valid value returned %d", got)
+	}
+}
+
+func TestParseOffset(t *testing.T) {
+	if got, err := parseOffset("", 10); got != 10 || err != nil {
+		t.Fatalf("empty value returned %d, %v", got, err)
+	}
+	if got, err := parseOffset("501", 0); got != 501 || err != nil {
+		t.Fatalf("valid deep offset returned %d, %v", got, err)
+	}
+	for _, value := range []string{"-1", "100001", "abc"} {
+		if _, err := parseOffset(value, 0); err == nil {
+			t.Errorf("parseOffset(%q) should fail", value)
+		}
 	}
 }
 
@@ -166,11 +183,63 @@ func TestReadJSONBodyRejectsUnknownFields(t *testing.T) {
 	}
 }
 
+func TestReadJSONBodyRequiresOneValidObjectAndEnforcesLimit(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+	}{
+		{name: "malformed JSON", body: `{"name":`},
+		{name: "second JSON value", body: `{"name":"tag"} {"name":"other"}`},
+		{name: "trailing garbage", body: `{"name":"tag"} trailing`},
+		{name: "oversized JSON", body: `{"name":"` + strings.Repeat("x", (1<<20)+1) + `"}`},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, "/api/tags", strings.NewReader(test.body))
+			rec := httptest.NewRecorder()
+			var input tagInput
+			if readJSONBody(rec, req, &input) {
+				t.Fatal("invalid body was accepted")
+			}
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("unexpected status %d", rec.Code)
+			}
+		})
+	}
+}
+
+func TestPathID(t *testing.T) {
+	for _, test := range []struct {
+		value string
+		want  int64
+		ok    bool
+	}{
+		{value: "42", want: 42, ok: true},
+		{value: "0"},
+		{value: "-1"},
+		{value: "abc"},
+	} {
+		t.Run(test.value, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/api/locations/"+test.value, nil)
+			req.SetPathValue("id", test.value)
+			rec := httptest.NewRecorder()
+			got, ok := pathID(rec, req, "id")
+			if ok != test.ok || (ok && got != test.want) {
+				t.Fatalf("pathID() = %d, %v; want %d, %v", got, ok, test.want, test.ok)
+			}
+			if !ok && rec.Code != http.StatusBadRequest {
+				t.Fatalf("invalid id returned status %d", rec.Code)
+			}
+		})
+	}
+}
+
 func TestCORSPreflight(t *testing.T) {
 	handler := cors(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Fatal("preflight should not call next handler")
-	}))
+	}), []string{"https://example.test"})
 	req := httptest.NewRequest(http.MethodOptions, "/api/events", nil)
+	req.Header.Set("Origin", "https://example.test")
 	rec := httptest.NewRecorder()
 
 	handler.ServeHTTP(rec, req)
@@ -178,7 +247,43 @@ func TestCORSPreflight(t *testing.T) {
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("unexpected status: %d", rec.Code)
 	}
-	if rec.Header().Get("Access-Control-Allow-Origin") != "*" {
+	if rec.Header().Get("Access-Control-Allow-Origin") != "https://example.test" {
 		t.Fatal("missing CORS origin header")
+	}
+}
+
+func TestCORSRejectsUnknownOrigin(t *testing.T) {
+	handler := cors(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("disallowed preflight must not call next handler")
+	}), []string{"https://allowed.test"})
+	req := httptest.NewRequest(http.MethodOptions, "/api/events", nil)
+	req.Header.Set("Origin", "https://attacker.test")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("unexpected status: %d", rec.Code)
+	}
+}
+
+func TestWriteKeyProtectsMutations(t *testing.T) {
+	called := false
+	handler := requireWriteKey(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusNoContent)
+	}), "secret")
+
+	unauthorized := httptest.NewRequest(http.MethodPost, "/api/events", nil)
+	unauthorizedRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(unauthorizedRecorder, unauthorized)
+	if unauthorizedRecorder.Code != http.StatusUnauthorized || called {
+		t.Fatalf("unauthorized mutation returned %d, called=%v", unauthorizedRecorder.Code, called)
+	}
+
+	authorized := httptest.NewRequest(http.MethodDelete, "/api/events/1", nil)
+	authorized.Header.Set("Authorization", "Bearer secret")
+	authorizedRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(authorizedRecorder, authorized)
+	if authorizedRecorder.Code != http.StatusNoContent || !called {
+		t.Fatalf("authorized mutation returned %d, called=%v", authorizedRecorder.Code, called)
 	}
 }

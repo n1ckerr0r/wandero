@@ -12,14 +12,14 @@ import (
 func (api *API) listSources(w http.ResponseWriter, r *http.Request) {
 	rows, err := api.db.Query(r.Context(), `SELECT id, title, author, year, url, type::text FROM source ORDER BY title`)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		handleDBError(w, err)
 		return
 	}
 	defer rows.Close()
 
 	items, err := scanSources(rows)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		handleDBError(w, err)
 		return
 	}
 
@@ -41,7 +41,7 @@ func (api *API) createSource(w http.ResponseWriter, r *http.Request) {
 		strings.TrimSpace(input.Title), strings.TrimSpace(input.Author), input.Year, strings.TrimSpace(input.URL), input.Type,
 	).Scan(&id)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		handleDBError(w, err)
 		return
 	}
 
@@ -87,7 +87,7 @@ func (api *API) updateSource(w http.ResponseWriter, r *http.Request) {
 		strings.TrimSpace(input.Title), strings.TrimSpace(input.Author), input.Year, strings.TrimSpace(input.URL), input.Type, id,
 	)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		handleDBError(w, err)
 		return
 	}
 	if tag.RowsAffected() == 0 {
@@ -112,7 +112,7 @@ func (api *API) deleteSource(w http.ResponseWriter, r *http.Request) {
 
 	tag, err := api.db.Exec(r.Context(), `DELETE FROM source WHERE id=$1`, id)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		handleDBError(w, err)
 		return
 	}
 	if tag.RowsAffected() == 0 {
@@ -154,14 +154,14 @@ func (api *API) listEventSources(w http.ResponseWriter, r *http.Request) {
 		WHERE es.event_id=$1
 		ORDER BY s.title`, eventID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		handleDBError(w, err)
 		return
 	}
 	defer rows.Close()
 
 	items, err := scanSources(rows)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		handleDBError(w, err)
 		return
 	}
 
@@ -204,7 +204,7 @@ func (api *API) unlinkEventSource(w http.ResponseWriter, r *http.Request) {
 
 	_, err := api.db.Exec(r.Context(), `DELETE FROM event_source WHERE event_id=$1 AND source_id=$2`, eventID, sourceID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		handleDBError(w, err)
 		return
 	}
 

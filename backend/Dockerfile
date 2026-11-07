@@ -7,14 +7,17 @@ RUN go mod download
 
 COPY . .
 
-RUN go build -o server ./cmd/server
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/server ./cmd/server && \
+    CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/migrate ./cmd/migrate
 
 FROM alpine:3.22
 
-WORKDIR /app
-
 RUN apk add --no-cache ca-certificates wget
+RUN addgroup -S app && adduser -S -G app app
 
-COPY --from=builder /app/server ./server
+COPY --from=builder /out/server /app/server
+COPY --from=builder /out/migrate /app/migrate
 
-CMD ["./server"]
+USER app
+EXPOSE 8080
+ENTRYPOINT ["/app/server"]

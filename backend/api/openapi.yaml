@@ -1,6 +1,6 @@
 openapi: 3.0.3
 info:
-  title: Chronograph SPB API
+  title: Wandero API
   version: 0.1.0
   description: API for historical Saint Petersburg locations, events, tags, sources, media, and map GeoJSON.
 servers:
@@ -9,6 +9,7 @@ servers:
 tags:
   - name: Health
   - name: Locations
+  - name: Routes
   - name: Events
   - name: Tags
   - name: Sources
@@ -45,6 +46,7 @@ paths:
     post:
       tags: [Locations]
       summary: Create a location
+      security: [{writeBearer: []}]
       requestBody:
         required: true
         content:
@@ -52,6 +54,8 @@ paths:
             schema:
               $ref: "#/components/schemas/LocationInput"
       responses:
+        "401":
+          $ref: "#/components/responses/Error"
         "201":
           description: Created location
           content:
@@ -79,6 +83,7 @@ paths:
     put:
       tags: [Locations]
       summary: Update a location
+      security: [{writeBearer: []}]
       requestBody:
         required: true
         content:
@@ -86,6 +91,8 @@ paths:
             schema:
               $ref: "#/components/schemas/LocationInput"
       responses:
+        "401":
+          $ref: "#/components/responses/Error"
         "200":
           description: Updated location
           content:
@@ -99,9 +106,122 @@ paths:
     delete:
       tags: [Locations]
       summary: Delete a location
+      security: [{writeBearer: []}]
       responses:
+        "401":
+          $ref: "#/components/responses/Error"
         "204":
           description: Location deleted
+        "404":
+          $ref: "#/components/responses/Error"
+
+  /api/routes:
+    get:
+      tags: [Routes]
+      summary: List published walking routes
+      parameters:
+        - name: q
+          in: query
+          description: Case-insensitive search in route title and description
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Published route list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Route"
+    post:
+      tags: [Routes]
+      summary: Create a walking route with ordered stops
+      security: [{writeBearer: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RouteInput"
+      responses:
+        "201":
+          description: Created route
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Route"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+
+  /api/routes/{id}:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    get:
+      tags: [Routes]
+      summary: Get a walking route with its ordered stops
+      responses:
+        "200":
+          description: Route
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Route"
+        "404":
+          $ref: "#/components/responses/Error"
+    put:
+      tags: [Routes]
+      summary: Replace a walking route and its ordered stops
+      security: [{writeBearer: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RouteInput"
+      responses:
+        "200":
+          description: Updated route
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Route"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+    delete:
+      tags: [Routes]
+      summary: Delete a walking route
+      security: [{writeBearer: []}]
+      responses:
+        "204":
+          description: Route deleted
+        "401":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+
+  /api/routes/{id}/completions:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    post:
+      tags: [Routes]
+      summary: Record one completed walk for a published route
+      security: [{writeBearer: []}]
+      responses:
+        "200":
+          description: Updated route popularity counter
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Route"
+        "401":
+          $ref: "#/components/responses/Error"
         "404":
           $ref: "#/components/responses/Error"
 
@@ -148,6 +268,8 @@ paths:
           schema:
             type: integer
             default: 0
+            minimum: 0
+            maximum: 100000
       responses:
         "200":
           description: Event list
@@ -162,6 +284,7 @@ paths:
     post:
       tags: [Events]
       summary: Create an event
+      security: [{writeBearer: []}]
       requestBody:
         required: true
         content:
@@ -169,6 +292,8 @@ paths:
             schema:
               $ref: "#/components/schemas/EventInput"
       responses:
+        "401":
+          $ref: "#/components/responses/Error"
         "201":
           description: Created event
           content:
@@ -196,6 +321,7 @@ paths:
     put:
       tags: [Events]
       summary: Update an event
+      security: [{writeBearer: []}]
       requestBody:
         required: true
         content:
@@ -203,6 +329,8 @@ paths:
             schema:
               $ref: "#/components/schemas/EventInput"
       responses:
+        "401":
+          $ref: "#/components/responses/Error"
         "200":
           description: Updated event
           content:
@@ -216,7 +344,10 @@ paths:
     delete:
       tags: [Events]
       summary: Delete an event
+      security: [{writeBearer: []}]
       responses:
+        "401":
+          $ref: "#/components/responses/Error"
         "204":
           description: Event deleted
         "404":
@@ -240,6 +371,7 @@ paths:
     post:
       tags: [Media]
       summary: Add media to an event
+      security: [{writeBearer: []}]
       requestBody:
         required: true
         content:
@@ -247,6 +379,8 @@ paths:
             schema:
               $ref: "#/components/schemas/MediaInput"
       responses:
+        "401":
+          $ref: "#/components/responses/Error"
         "201":
           description: Created media
           content:
@@ -286,7 +420,10 @@ paths:
     post:
       tags: [Sources]
       summary: Link a source to an event
+      security: [{writeBearer: []}]
       responses:
+        "401":
+          $ref: "#/components/responses/Error"
         "204":
           description: Source linked
         "404":
@@ -294,7 +431,10 @@ paths:
     delete:
       tags: [Sources]
       summary: Unlink a source from an event
+      security: [{writeBearer: []}]
       responses:
+        "401":
+          $ref: "#/components/responses/Error"
         "204":
           description: Source unlinked
 
@@ -314,6 +454,7 @@ paths:
     post:
       tags: [Tags]
       summary: Create or return a tag
+      security: [{writeBearer: []}]
       requestBody:
         required: true
         content:
@@ -321,6 +462,8 @@ paths:
             schema:
               $ref: "#/components/schemas/TagInput"
       responses:
+        "401":
+          $ref: "#/components/responses/Error"
         "201":
           description: Created or existing tag
           content:
@@ -336,6 +479,7 @@ paths:
     put:
       tags: [Tags]
       summary: Update a tag
+      security: [{writeBearer: []}]
       requestBody:
         required: true
         content:
@@ -343,6 +487,8 @@ paths:
             schema:
               $ref: "#/components/schemas/TagInput"
       responses:
+        "401":
+          $ref: "#/components/responses/Error"
         "200":
           description: Updated tag
           content:
@@ -356,7 +502,10 @@ paths:
     delete:
       tags: [Tags]
       summary: Delete a tag
+      security: [{writeBearer: []}]
       responses:
+        "401":
+          $ref: "#/components/responses/Error"
         "204":
           description: Tag deleted
         "404":
@@ -378,6 +527,7 @@ paths:
     post:
       tags: [Sources]
       summary: Create a source
+      security: [{writeBearer: []}]
       requestBody:
         required: true
         content:
@@ -385,6 +535,8 @@ paths:
             schema:
               $ref: "#/components/schemas/SourceInput"
       responses:
+        "401":
+          $ref: "#/components/responses/Error"
         "201":
           description: Created source
           content:
@@ -412,6 +564,7 @@ paths:
     put:
       tags: [Sources]
       summary: Update a source
+      security: [{writeBearer: []}]
       requestBody:
         required: true
         content:
@@ -419,6 +572,8 @@ paths:
             schema:
               $ref: "#/components/schemas/SourceInput"
       responses:
+        "401":
+          $ref: "#/components/responses/Error"
         "200":
           description: Updated source
           content:
@@ -432,7 +587,10 @@ paths:
     delete:
       tags: [Sources]
       summary: Delete a source
+      security: [{writeBearer: []}]
       responses:
+        "401":
+          $ref: "#/components/responses/Error"
         "204":
           description: Source deleted
         "404":
@@ -444,7 +602,10 @@ paths:
     delete:
       tags: [Media]
       summary: Delete media
+      security: [{writeBearer: []}]
       responses:
+        "401":
+          $ref: "#/components/responses/Error"
         "204":
           description: Media deleted
         "404":
@@ -489,6 +650,8 @@ paths:
           schema:
             type: integer
             default: 0
+            minimum: 0
+            maximum: 100000
       responses:
         "200":
           description: GeoJSON FeatureCollection
@@ -503,6 +666,11 @@ paths:
           $ref: "#/components/responses/Error"
 
 components:
+  securitySchemes:
+    writeBearer:
+      type: http
+      scheme: bearer
+      description: API_WRITE_KEY required for mutation endpoints when configured
   parameters:
     ID:
       name: id
@@ -558,17 +726,100 @@ components:
       allOf:
         - $ref: "#/components/schemas/LocationInput"
         - type: object
-          required: [id, created_at, updated_at]
+          required: [id, description, created_at, updated_at]
           properties:
             id:
               type: integer
               format: int64
+            description:
+              type: string
             created_at:
               type: string
               format: date-time
             updated_at:
               type: string
               format: date-time
+    RouteStopInput:
+      type: object
+      required: [location_id]
+      properties:
+        location_id:
+          type: integer
+          format: int64
+        visit_minutes:
+          type: integer
+          minimum: 0
+          maximum: 1440
+          default: 30
+    RouteStop:
+      allOf:
+        - $ref: "#/components/schemas/RouteStopInput"
+        - type: object
+          required: [position, location]
+          properties:
+            position:
+              type: integer
+              minimum: 1
+            location:
+              $ref: "#/components/schemas/Location"
+    RouteInput:
+      type: object
+      required: [title, stops]
+      properties:
+        title:
+          type: string
+          example: Парадный Петербург
+        description:
+          type: string
+        published:
+          type: boolean
+          default: false
+        distance_meters:
+          type: integer
+          nullable: true
+          minimum: 0
+        walking_minutes:
+          type: integer
+          nullable: true
+          minimum: 0
+        stops:
+          type: array
+          minItems: 1
+          maxItems: 12
+          items:
+            $ref: "#/components/schemas/RouteStopInput"
+    Route:
+      type: object
+      required: [id, title, description, published, completion_count, stops, created_at, updated_at]
+      properties:
+        id:
+          type: integer
+          format: int64
+        title:
+          type: string
+        description:
+          type: string
+        published:
+          type: boolean
+        distance_meters:
+          type: integer
+          nullable: true
+        walking_minutes:
+          type: integer
+          nullable: true
+        completion_count:
+          type: integer
+          minimum: 0
+        stops:
+          type: array
+          items:
+            $ref: "#/components/schemas/RouteStop"
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
     EventInput:
       type: object
       required: [title, date_from]
@@ -601,11 +852,17 @@ components:
       allOf:
         - $ref: "#/components/schemas/EventInput"
         - type: object
-          required: [id, location_name, tags, created_at, updated_at]
+          required: [id, description, location_name, tags, created_at, updated_at]
           properties:
             id:
               type: integer
               format: int64
+            description:
+              type: string
+            tags:
+              type: array
+              items:
+                type: string
             location_name:
               type: string
               example: Петропавловская крепость
@@ -662,11 +919,17 @@ components:
       allOf:
         - $ref: "#/components/schemas/SourceInput"
         - type: object
-          required: [id]
+          required: [id, author, url, type]
           properties:
             id:
               type: integer
               format: int64
+            author:
+              type: string
+            url:
+              type: string
+            type:
+              $ref: "#/components/schemas/SourceType"
     SourceType:
       type: string
       enum: [book, article, archive, photo, map, web]
@@ -683,13 +946,14 @@ components:
           example: Фото
         type:
           type: string
+          enum: [image, link]
           default: image
           example: image
     Media:
       allOf:
         - $ref: "#/components/schemas/MediaInput"
         - type: object
-          required: [id, event_id]
+          required: [id, event_id, url, caption, type]
           properties:
             id:
               type: integer
@@ -697,6 +961,13 @@ components:
             event_id:
               type: integer
               format: int64
+            url:
+              type: string
+            caption:
+              type: string
+            type:
+              type: string
+              enum: [image, link]
     GeoJSONFeatureCollection:
       type: object
       required: [type, features]

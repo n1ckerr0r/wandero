@@ -83,7 +83,7 @@ func (api *API) deleteEvent(w http.ResponseWriter, r *http.Request) {
 
 	tag, err := api.db.Exec(r.Context(), `DELETE FROM event WHERE id=$1`, id)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		handleDBError(w, err)
 		return
 	}
 	if tag.RowsAffected() == 0 {
@@ -254,8 +254,14 @@ func (api *API) queryEvents(ctx context.Context, values interface{ Get(string) s
 		ORDER BY e.date_from, e.id`
 
 	if !exact {
-		limit := parsePositiveInt(values.Get("limit"), 100)
-		offset := parsePositiveInt(values.Get("offset"), 0)
+		limit, err := parsePositiveInt(values.Get("limit"), 100)
+		if err != nil {
+			return nil, err
+		}
+		offset, err := parseOffset(values.Get("offset"), 0)
+		if err != nil {
+			return nil, err
+		}
 		args = append(args, limit)
 		query += fmt.Sprintf(" LIMIT $%d", len(args))
 		args = append(args, offset)

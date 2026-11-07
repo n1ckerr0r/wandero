@@ -3,6 +3,7 @@ package api
 import (
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -43,6 +44,44 @@ func readEventInput(w http.ResponseWriter, r *http.Request) (eventInput, bool) {
 	return input, true
 }
 
+func readRouteInput(w http.ResponseWriter, r *http.Request) (routeInput, bool) {
+	var input routeInput
+	if !readJSONBody(w, r, &input) {
+		return routeInput{}, false
+	}
+	if strings.TrimSpace(input.Title) == "" {
+		writeError(w, http.StatusBadRequest, "title is required")
+		return routeInput{}, false
+	}
+	if len(input.Stops) == 0 || len(input.Stops) > 12 {
+		writeError(w, http.StatusBadRequest, "stops must contain between 1 and 12 places")
+		return routeInput{}, false
+	}
+	seen := make(map[int64]struct{}, len(input.Stops))
+	for _, stop := range input.Stops {
+		if stop.LocationID <= 0 {
+			writeError(w, http.StatusBadRequest, "every stop must have a positive location_id")
+			return routeInput{}, false
+		}
+		if stop.VisitMinutes < 0 || stop.VisitMinutes > 1440 {
+			writeError(w, http.StatusBadRequest, "visit_minutes must be between 0 and 1440")
+			return routeInput{}, false
+		}
+		if _, duplicate := seen[stop.LocationID]; duplicate {
+			writeError(w, http.StatusBadRequest, "a location can only appear once in a route")
+			return routeInput{}, false
+		}
+		seen[stop.LocationID] = struct{}{}
+	}
+	for _, value := range []*int{input.DistanceMeters, input.WalkingMinutes} {
+		if value != nil && *value < 0 {
+			writeError(w, http.StatusBadRequest, "route durations and distances cannot be negative")
+			return routeInput{}, false
+		}
+	}
+	return input, true
+}
+
 func readSourceInput(w http.ResponseWriter, r *http.Request) (sourceInput, bool) {
 	var input sourceInput
 	if !readJSONBody(w, r, &input) {
@@ -58,6 +97,17 @@ func readSourceInput(w http.ResponseWriter, r *http.Request) (sourceInput, bool)
 	if !isSourceType(input.Type) {
 		writeError(w, http.StatusBadRequest, "type must be one of book, article, archive, photo, map, web")
 		return sourceInput{}, false
+	}
+	if input.Year != nil && (*input.Year < 0 || *input.Year > time.Now().Year()+1) {
+		writeError(w, http.StatusBadRequest, "year is out of range")
+		return sourceInput{}, false
+	}
+	if strings.TrimSpace(input.URL) != "" {
+		parsed, err := url.ParseRequestURI(input.URL)
+		if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
+			writeError(w, http.StatusBadRequest, "url must be an absolute HTTP(S) URL")
+			return sourceInput{}, false
+		}
 	}
 	return input, true
 }

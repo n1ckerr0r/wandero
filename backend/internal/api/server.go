@@ -17,8 +17,8 @@ type API struct {
 	db *pgxpool.Pool
 }
 
-// New создает HTTP-роутер для Chronograph API.
-func New(db *pgxpool.Pool) http.Handler {
+// New создает HTTP-роутер для Wandero API.
+func New(db *pgxpool.Pool, allowedOrigins []string, writeKey string) http.Handler {
 	api := &API{db: db}
 
 	handler := openapi.HandlerWithOptions(api, openapi.StdHTTPServerOptions{
@@ -27,7 +27,7 @@ func New(db *pgxpool.Pool) http.Handler {
 		},
 	})
 
-	return cors(handler)
+	return recoverPanic(securityHeaders(cors(requireWriteKey(handler, writeKey), allowedOrigins)))
 }
 
 // health проверяет доступность HTTP-сервера и подключения к базе данных.

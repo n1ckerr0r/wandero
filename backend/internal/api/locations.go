@@ -15,7 +15,7 @@ func (api *API) listLocations(w http.ResponseWriter, r *http.Request) {
 		FROM location
 		ORDER BY name`)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		handleDBError(w, err)
 		return
 	}
 	defer rows.Close()
@@ -24,10 +24,14 @@ func (api *API) listLocations(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var item locationDTO
 		if err := rows.Scan(&item.ID, &item.Name, &item.Description, &item.Latitude, &item.Longitude, &item.CreatedAt, &item.UpdatedAt); err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
+			handleDBError(w, err)
 			return
 		}
 		locations = append(locations, item)
+	}
+	if err := rows.Err(); err != nil {
+		handleDBError(w, err)
+		return
 	}
 
 	writeJSON(w, http.StatusOK, locations)
@@ -42,7 +46,7 @@ func (api *API) createLocation(w http.ResponseWriter, r *http.Request) {
 
 	item, err := api.insertLocation(r.Context(), input)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		handleDBError(w, err)
 		return
 	}
 
@@ -94,7 +98,7 @@ func (api *API) deleteLocation(w http.ResponseWriter, r *http.Request) {
 
 	tag, err := api.db.Exec(r.Context(), `DELETE FROM location WHERE id=$1`, id)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		handleDBError(w, err)
 		return
 	}
 	if tag.RowsAffected() == 0 {

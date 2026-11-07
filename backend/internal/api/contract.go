@@ -38,6 +38,30 @@ func (api *API) DeleteApiLocationsId(w http.ResponseWriter, r *http.Request, id 
 	api.deleteLocation(w, r)
 }
 
+func (api *API) GetApiRoutes(w http.ResponseWriter, r *http.Request, params openapi.GetApiRoutesParams) {
+	api.listRoutes(w, r)
+}
+
+func (api *API) PostApiRoutes(w http.ResponseWriter, r *http.Request) {
+	api.createRoute(w, r)
+}
+
+func (api *API) GetApiRoutesId(w http.ResponseWriter, r *http.Request, id openapi.ID) {
+	api.getRoute(w, r)
+}
+
+func (api *API) PutApiRoutesId(w http.ResponseWriter, r *http.Request, id openapi.ID) {
+	api.updateRoute(w, r)
+}
+
+func (api *API) DeleteApiRoutesId(w http.ResponseWriter, r *http.Request, id openapi.ID) {
+	api.deleteRoute(w, r)
+}
+
+func (api *API) PostApiRoutesIdCompletions(w http.ResponseWriter, r *http.Request, id openapi.ID) {
+	api.completeRoute(w, r)
+}
+
 // GetApiEvents реализует OpenAPI-операцию GET /api/events.
 func (api *API) GetApiEvents(w http.ResponseWriter, r *http.Request, params openapi.GetApiEventsParams) {
 	api.listEvents(w, r)

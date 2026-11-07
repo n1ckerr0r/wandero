@@ -27,6 +27,10 @@ func TestIntegrationLocationCRUD(t *testing.T) {
 	if location.ID == 0 || location.Name != "Адмиралтейство" {
 		t.Fatalf("unexpected location: %+v", location)
 	}
+	got := getJSON[locationDTO](t, handler, "/api/locations/"+itoa(location.ID), http.StatusOK)
+	if got.Latitude != location.Latitude || got.Longitude != location.Longitude {
+		t.Fatalf("location coordinates were not round-tripped: %+v", got)
+	}
 
 	updated := putJSON[locationDTO](t, handler, "/api/locations/"+itoa(location.ID), `{
 		"name":"Адмиралтейство обновлено",
@@ -43,21 +47,60 @@ func TestIntegrationLocationCRUD(t *testing.T) {
 	getRequest(t, handler, "/api/locations/"+itoa(location.ID), http.StatusNotFound)
 }
 
+func TestIntegrationRouteOrderedStopsAndCompletion(t *testing.T) {
+	handler, _ := newIntegrationAPI(t)
+	first := createIntegrationLocation(t, handler)
+	second := postJSON[locationDTO](t, handler, "/api/locations", `{"name":"Второе место","description":"","latitude":59.94,"longitude":30.32}`, http.StatusCreated)
+
+	route := postJSON[routeDTO](t, handler, "/api/routes", `{
+		"title":"Тестовая прогулка", "description":"Маршрут", "published":true,
+		"stops":[
+			{"location_id":`+itoa(second.ID)+`,"visit_minutes":15},
+			{"location_id":`+itoa(first.ID)+`,"visit_minutes":30}
+		]
+	}`, http.StatusCreated)
+	if len(route.Stops) != 2 || route.Stops[0].LocationID != second.ID || route.Stops[1].Position != 2 {
+		t.Fatalf("route stops did not retain order: %+v", route.Stops)
+	}
+
+	listed := getJSON[[]routeDTO](t, handler, "/api/routes?q=Тестовая", http.StatusOK)
+	if len(listed) != 1 || listed[0].ID != route.ID {
+		t.Fatalf("published route is missing from catalogue: %+v", listed)
+	}
+	completed := postJSON[routeDTO](t, handler, "/api/routes/"+itoa(route.ID)+"/completions", "", http.StatusOK)
+	if completed.CompletionCount != 1 {
+		t.Fatalf("completion count was not persisted: %+v", completed)
+	}
+
+	putJSON[routeDTO](t, handler, "/api/routes/"+itoa(route.ID), `{
+		"title":"Тестовая прогулка", "published":true,
+		"stops":[{"location_id":`+itoa(first.ID)+`,"visit_minutes":0}]
+	}`, http.StatusOK)
+	updated := getJSON[routeDTO](t, handler, "/api/routes/"+itoa(route.ID), http.StatusOK)
+	if len(updated.Stops) != 1 || updated.Stops[0].LocationID != first.ID {
+		t.Fatalf("route stops were not replaced: %+v", updated.Stops)
+	}
+}
+
 func TestIntegrationTagCRUD(t *testing.T) {
 	handler, _ := newIntegrationAPI(t)
 
-	tag := postJSON[tagDTO](t, handler, "/api/tags", `{"name":"архитектура"}`, http.StatusCreated)
-	if tag.ID == 0 || tag.Name != "архитектура" {
+	tag := postJSON[tagDTO](t, handler, "/api/tags", `{"name":"integration-tag-created"}`, http.StatusCreated)
+	if tag.ID == 0 || tag.Name != "integration-tag-created" {
 		t.Fatalf("unexpected tag: %+v", tag)
 	}
+	duplicate := postJSON[tagDTO](t, handler, "/api/tags", `{"name":"integration-tag-created"}`, http.StatusCreated)
+	if duplicate.ID != tag.ID {
+		t.Fatalf("tag creation should be idempotent by name: %d != %d", duplicate.ID, tag.ID)
+	}
 
-	updated := putJSON[tagDTO](t, handler, "/api/tags/"+itoa(tag.ID), `{"name":"градостроительство"}`, http.StatusOK)
-	if updated.Name != "градостроительство" {
+	updated := putJSON[tagDTO](t, handler, "/api/tags/"+itoa(tag.ID), `{"name":"integration-tag-updated"}`, http.StatusOK)
+	if updated.Name != "integration-tag-updated" {
 		t.Fatalf("tag was not updated: %+v", updated)
 	}
 
 	tags := getJSON[[]tagDTO](t, handler, "/api/tags", http.StatusOK)
-	if !hasTag(tags, updated.ID, "градостроительство") {
+	if !hasTag(tags, updated.ID, "integration-tag-updated") {
 		t.Fatalf("unexpected tags: %+v", tags)
 	}
 
@@ -75,6 +118,10 @@ func TestIntegrationSourceCRUDAndEventLinks(t *testing.T) {
 		"url":"https://example.test/source",
 		"type":"archive"
 	}`, http.StatusCreated)
+	gotSource := getJSON[sourceDTO](t, handler, "/api/sources/"+itoa(source.ID), http.StatusOK)
+	if gotSource.ID != source.ID || gotSource.Type != "archive" {
+		t.Fatalf("unexpected source lookup: %+v", gotSource)
+	}
 
 	postRequest(t, handler, "/api/events/"+itoa(event.ID)+"/sources/"+itoa(source.ID), "", http.StatusNoContent)
 	linked := getJSON[[]sourceDTO](t, handler, "/api/events/"+itoa(event.ID)+"/sources", http.StatusOK)
@@ -111,6 +158,10 @@ func TestIntegrationEventCRUDAndGeoJSON(t *testing.T) {
 	if event.ID == 0 || event.LocationID == nil || *event.LocationID != location.ID {
 		t.Fatalf("unexpected event: %+v", event)
 	}
+	gotEvent := getJSON[eventDTO](t, handler, "/api/events/"+itoa(event.ID), http.StatusOK)
+	if gotEvent.ID != event.ID || gotEvent.LocationName != location.Name || len(gotEvent.Tags) != 2 {
+		t.Fatalf("unexpected event lookup: %+v", gotEvent)
+	}
 
 	events := getJSON[[]eventDTO](t, handler, "/api/events?from=1700&to=1710&tag=основание", http.StatusOK)
 	if !hasEvent(events, event.ID) {
@@ -120,6 +171,25 @@ func TestIntegrationEventCRUDAndGeoJSON(t *testing.T) {
 	geojson := getJSON[map[string]any](t, handler, "/api/map/events.geojson?from=1700&to=1710", http.StatusOK)
 	if geojson["type"] != "FeatureCollection" {
 		t.Fatalf("unexpected geojson: %+v", geojson)
+	}
+	features, ok := geojson["features"].([]any)
+	if !ok {
+		t.Fatalf("expected GeoJSON features array, got: %#v", geojson["features"])
+	}
+	foundEvent := false
+	for _, rawFeature := range features {
+		feature, ok := rawFeature.(map[string]any)
+		if !ok {
+			continue
+		}
+		properties, ok := feature["properties"].(map[string]any)
+		if ok && properties["id"] == float64(event.ID) {
+			foundEvent = true
+			break
+		}
+	}
+	if !foundEvent {
+		t.Fatalf("GeoJSON does not contain created event %d", event.ID)
 	}
 
 	updated := putJSON[eventDTO](t, handler, "/api/events/"+itoa(event.ID), `{
@@ -134,6 +204,14 @@ func TestIntegrationEventCRUDAndGeoJSON(t *testing.T) {
 	}
 
 	deleteRequest(t, handler, "/api/events/"+itoa(event.ID), http.StatusNoContent)
+}
+
+func TestIntegrationHealth(t *testing.T) {
+	handler, _ := newIntegrationAPI(t)
+	status := getJSON[map[string]string](t, handler, "/health", http.StatusOK)
+	if status["status"] != "ok" {
+		t.Fatalf("unexpected health response: %#v", status)
+	}
 }
 
 func TestIntegrationMediaCRUD(t *testing.T) {
@@ -173,7 +251,7 @@ func newIntegrationAPI(t *testing.T) (http.Handler, *pgxpool.Pool) {
 	t.Cleanup(pool.Close)
 
 	resetIntegrationDatabase(t, pool)
-	return New(pool), pool
+	return New(pool, nil, ""), pool
 }
 
 func resetIntegrationDatabase(t *testing.T, pool *pgxpool.Pool) {

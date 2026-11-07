@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"net/url"
 	"strings"
 )
 
@@ -18,7 +19,7 @@ func (api *API) listEventMedia(w http.ResponseWriter, r *http.Request) {
 		WHERE event_id=$1
 		ORDER BY id`, eventID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		handleDBError(w, err)
 		return
 	}
 	defer rows.Close()
@@ -27,10 +28,14 @@ func (api *API) listEventMedia(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var item mediaDTO
 		if err := rows.Scan(&item.ID, &item.EventID, &item.URL, &item.Caption, &item.Type); err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
+			handleDBError(w, err)
 			return
 		}
 		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		handleDBError(w, err)
+		return
 	}
 
 	writeJSON(w, http.StatusOK, items)
@@ -53,9 +58,18 @@ func (api *API) createEventMedia(w http.ResponseWriter, r *http.Request) {
 	if strings.TrimSpace(input.Type) == "" {
 		input.Type = "image"
 	}
+	if input.Type != "image" && input.Type != "link" {
+		writeError(w, http.StatusBadRequest, "type must be image or link")
+		return
+	}
+	parsedURL, err := url.ParseRequestURI(input.URL)
+	if err != nil || (parsedURL.Scheme != "http" && parsedURL.Scheme != "https") || parsedURL.Host == "" {
+		writeError(w, http.StatusBadRequest, "url must be an absolute HTTP(S) URL")
+		return
+	}
 
 	var item mediaDTO
-	err := api.db.QueryRow(r.Context(), `
+	err = api.db.QueryRow(r.Context(), `
 		INSERT INTO media (event_id, url, caption, type)
 		VALUES ($1, $2, $3, $4)
 		RETURNING id, event_id, url, caption, type`,
@@ -78,7 +92,7 @@ func (api *API) deleteMedia(w http.ResponseWriter, r *http.Request) {
 
 	tag, err := api.db.Exec(r.Context(), `DELETE FROM media WHERE id=$1`, id)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		handleDBError(w, err)
 		return
 	}
 	if tag.RowsAffected() == 0 {
